@@ -2220,7 +2220,40 @@ footer {
 <!-- Toast -->
 <div id="toast" role="alert" aria-live="polite"></div>
 
-<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script><script>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script>
+<script>
+/* ===== FIREBASE REST API ===== */
+const FB_URL = 'https://fritangadevorita2-default-rtdb.firebaseio.com/store';
+
+const fbSave = (data) => fetch(FB_URL + '.json', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(data)
+}).catch(e => console.warn('Firebase save error:', e));
+
+const fbLoad = () => fetch(FB_URL + '.json')
+  .then(r => r.json())
+  .catch(e => { console.warn('Firebase load error:', e); return null; });
+
+// Poll for changes every 5 seconds on non-admin devices
+let fbLastHash = '';
+function fbStartSync() {
+  setInterval(async () => {
+    try {
+      const data = await fbLoad();
+      if (!data) return;
+      const hash = JSON.stringify(data).length + '_' + (data.nextId || 0);
+      if (hash !== fbLastHash) {
+        fbLastHash = hash;
+        store = { ...store, ...data };
+        try { localStorage.setItem('devorita_store_v6', JSON.stringify(store)); } catch(e) {}
+        renderAll();
+      }
+    } catch(e) {}
+  }, 5000);
+}
+</script>
+<script>
 /* ===== DATA STORE ===== */
 let store = {
   mision: "Hacemos pasteles de trigo y arepas como los de toda la vida — con las manos, con cariño, sin atajos. Cada pedido lleva el sabor que extrañas de casa.",
@@ -2291,28 +2324,41 @@ const WA_NUMBER = '573203253546';
 
 /* ===== LOCALSTORAGE ===== */
 function loadStore() {
+  // Primero renderizar con localStorage para que la página no quede en blanco
   try {
     const saved = localStorage.getItem('devorita_store_v6');
-    if (saved) {
-      const p = JSON.parse(saved);
-      // Deep merge: keep default nested objects if the saved data doesn't have them
-      store = { ...store, ...p };
-      if (!store.categories || !store.categories.length) store.categories = [
-        { key: 'pasteles',     emoji: '🍗', label: 'Pasteles de Trigo' },
-        { key: 'arepas',       emoji: '🫓', label: 'Arepas Rellenas' },
-        { key: 'salchis',      emoji: '🍟', label: 'Salchipapas y Especiales' },
-        { key: 'hamburguesas', emoji: '🍔', label: 'Hamburguesas' },
-        { key: 'papas',        emoji: '🥔', label: 'Papas Rellenas' },
-        { key: 'bebidas',      emoji: '🥤', label: 'Bebidas' }
-      ];
-      if (!store.products || Object.keys(store.products).length === 0) store.products = {};
-    }
+    if (saved) store = { ...store, ...JSON.parse(saved) };
   } catch(e) {}
   renderAll();
+
+  // Luego cargar desde Firebase y actualizar
+  fbLoad().then(function(data) {
+    if (data) {
+      store = { ...store, ...data };
+    } else {
+      fbSave(store);
+    }
+    if (!store.categories || !store.categories.length) store.categories = [
+      { key: 'pasteles',     emoji: '🍗', label: 'Pasteles de Trigo' },
+      { key: 'arepas',       emoji: '🫓', label: 'Arepas Rellenas' },
+      { key: 'salchis',      emoji: '🍟', label: 'Salchipapas y Especiales' },
+      { key: 'hamburguesas', emoji: '🍔', label: 'Hamburguesas' },
+      { key: 'papas',        emoji: '🥔', label: 'Papas Rellenas' },
+      { key: 'bebidas',      emoji: '🥤', label: 'Bebidas' }
+    ];
+    if (!store.products || Object.keys(store.products).length === 0) store.products = {};
+    try { localStorage.setItem('devorita_store_v6', JSON.stringify(store)); } catch(e) {}
+    renderAll();
+    fbStartSync();
+  }).catch(function() {
+    // Si Firebase falla, la página ya está renderizada con localStorage
+    fbStartSync();
+  });
 }
 
 function saveStore() {
   try { localStorage.setItem('devorita_store_v6', JSON.stringify(store)); } catch(e) {}
+  fbSave(store);
 }
 
 /* ===== QUANTITY HELPERS ===== */
